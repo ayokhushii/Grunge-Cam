@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grunge Cam</title>
+    <style>
+        body {
+            background-color: #0a0a0a;
+            color: #ff3333;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            text-transform: uppercase;
+        }
+
+        h1 { letter-spacing: 5px; text-shadow: 0 0 10px #ff0000; }
+
+        .container {
+            position: relative;
+            border: 2px solid #333;
+            box-shadow: 0 0 20px rgba(255, 0, 0, 0.2);
+            line-height: 0;
+            background: #000;
+            width: 640px;
+            max-width: 95vw;
+        }
+
+        canvas, #previewImg, #previewVid {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        #previewVid::-webkit-media-controls-panel {
+            transform: none !important;
+        }
+
+        #previewContainer {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 10;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            background: transparent;
+            color: #ff3333;
+            border: 1px solid #ff3333;
+            padding: 10px 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        button:hover {
+            background: #ff3333;
+            color: #000;
+            box-shadow: 0 0 15px #ff3333;
+        }
+
+        #recordingStatus {
+            margin-top: 10px;
+            color: #fff;
+            font-size: 0.8rem;
+            height: 1rem;
+        }
+
+        .hidden { display: none !important; }
+        .recording { border-color: #fff; color: #fff; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body>
+
+    <h1>Grunge Cam</h1>
+
+    <div class="container">
+        <video id="video" width="640" height="480" autoplay playsinline style="display:none;"></video>
+        <canvas id="canvas" width="640" height="480"></canvas>
+
+        <div id="previewContainer">
+            <img id="previewImg" class="hidden" src="" alt="Captured Photo">
+            <video id="previewVid" class="hidden" controls loop></video>
+        </div>
+    </div>
+
+    <div id="recordingStatus"></div>
+
+    <div class="controls" id="mainControls">
+        <button id="captureBtn">Capture Photo</button>
+        <button id="recordBtn">Start Recording</button>
+    </div>
+
+    <div class="controls hidden" id="previewControls">
+        <button id="saveBtn" style="border-color: #00ff00; color: #00ff00;">Save to Device</button>
+        <button id="retakeBtn">Retake / Back</button>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        
+        const previewContainer = document.getElementById('previewContainer');
+        const previewImg = document.getElementById('previewImg');
+        const previewVid = document.getElementById('previewVid');
+        const mainControls = document.getElementById('mainControls');
+        const previewControls = document.getElementById('previewControls');
+        
+        const captureBtn = document.getElementById('captureBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const retakeBtn = document.getElementById('retakeBtn');
+        const status = document.getElementById('recordingStatus');
+
+        let mediaRecorder;
+        let recordedChunks = [];
+        let isPaused = false;
+        let lastSavedBlobUrl = null;
+        let currentMode = 'photo';
+
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                video.srcObject = stream;
+                processFrame();
+            } catch (err) {
+                console.error("Camera Error:", err);
+            }
+        }
+
+        function processFrame() {
+            if (isPaused) return;
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const brightness = (data[i] * 0.3 + data[i+1] * 0.59 + data[i+2] * 0.11);
+                if (brightness < 120) { 
+                    data[i] = 0; data[i + 1] = 0; data[i + 2] = 0; 
+                } else if (brightness < 155) {
+                    data[i] = 160; data[i + 1] = 10; data[i + 2] = 10;
+                } else {
+                    data[i] = 255; data[i + 1] = 250; data[i + 2] = 240; 
+                }
+                const noise = (Math.random() - 0.5) * 40;
+                data[i] += noise; data[i+1] += noise; data[i+2] += noise;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            requestAnimationFrame(processFrame);
+        }
+
+        function showPreview(mode) {
+            isPaused = true;
+            currentMode = mode;
+            previewContainer.style.display = 'block';
+            mainControls.classList.add('hidden');
+            previewControls.classList.remove('hidden');
+        }
+
+        retakeBtn.addEventListener('click', () => {
+            isPaused = false;
+            previewContainer.style.display = 'none';
+            previewImg.classList.add('hidden');
+            previewVid.classList.add('hidden');
+            previewVid.pause();
+            previewVid.src = "";
+            mainControls.classList.remove('hidden');
+            previewControls.classList.add('hidden');
+            processFrame();
+        });
+
+        captureBtn.addEventListener('click', () => {
+            const dataUrl = canvas.toDataURL('image/png');
+            previewImg.src = dataUrl;
+            previewImg.classList.remove('hidden');
+            showPreview('photo');
+        });
+
+        recordBtn.addEventListener('click', () => {
+            if (recordBtn.textContent === 'Start Recording') {
+                startRecording();
+            } else {
+                stopRecording();
+            }
+        });
+
+        function startRecording() {
+            recordedChunks = [];
+            const stream = canvas.captureStream(30);
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+            mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                if (lastSavedBlobUrl) URL.revokeObjectURL(lastSavedBlobUrl);
+                lastSavedBlobUrl = URL.createObjectURL(blob);
+                previewVid.src = lastSavedBlobUrl;
+                previewVid.classList.remove('hidden');
+                showPreview('video');
+            };
+            mediaRecorder.start();
+            recordBtn.textContent = 'Stop Recording';
+            recordBtn.classList.add('recording');
+            status.textContent = '● RECORDING LIVE...';
+        }
+
+        function stopRecording() {
+            mediaRecorder.stop();
+            recordBtn.textContent = 'Start Recording';
+            recordBtn.classList.remove('recording');
+            status.textContent = '';
+        }
+
+        saveBtn.addEventListener('click', () => {
+            const link = document.createElement('a');
+            if (currentMode === 'photo') {
+                link.download = 'grunge-cam-photo.png';
+                link.href = previewImg.src;
+            } else {
+                link.download = 'grunge-cam-video.webm';
+                link.href = lastSavedBlobUrl;
+            }
+            link.click();
+        });
+
+        initCamera();
+    </script>
+</body>
+</html>
